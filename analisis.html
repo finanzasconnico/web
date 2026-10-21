@@ -3433,7 +3433,7 @@ function parseValuacion(buf) {
       ret3m: num(r['Ret_3m']), ret6m: num(r['Ret_6m']), ret12: num(r['Ret_12m']), dist52: num(r['Dist_max_52s']),
       mm200d: num(r['MM200_dia']), mm20s: num(r['MM20_sem']), mm20m: num(r['MM20_mes']), mm50m: num(r['MM50_mes']),
       max52: num(r['Max_52s']), min52: num(r['Min_52s']),
-      f: { revCagr: num(r['Rev_CAGR']), niPos: num(r['NI_pos']), fcfPos: num(r['FCF_pos']), margenTrend: num(r['Margen_trend']), ndEbitda: num(r['ND_EBITDA']) }
+      f: { revCagr: num(r['Rev_CAGR']), niPos: num(r['NI_pos']), fcfPos: num(r['FCF_pos']), margenTrend: num(r['Margen_trend']), ndEbitda: num(r['ND_EBITDA']), roe: num(r['ROE']) }
     };
   }).filter(r => r.ticker && RV_TICKERS_EXCLUIDOS.indexOf(r.ticker.toUpperCase()) < 0);
 }
@@ -3487,17 +3487,25 @@ function valuacion5y(r) {
   const mm = k ? r.m[k] : null;
   return (mm && mm.actual !== null && mm.p5 !== null) ? corr(mm.actual, mm.p5) : null;
 }
+// Mismo criterio que el Suite (Valuacion_Multiplos_FCN.html, 08–19/10/2026): empresas que casi nunca
+// ganaron plata NI generaron caja (≤1 de 5 años) no usan margen ni deuda/EBITDA y quedan como mucho
+// "Regular" (Satellogic salía "Sólido"); en bancos/financieras no se usa deuda/EBITDA (Nu daba −295x)
+// y sí el ROE.
 function fundamental(r) {
   const f = r.f || {};
   const c = [];
+  const quema = f.niPos != null && f.fcfPos != null && f.niPos <= 0.2 && f.fcfPos <= 0.2;
+  const fin = r.sector === 'Financial Services';
   if (f.revCagr !== null && f.revCagr !== undefined) c.push([clamp(f.revCagr / 0.15, -1, 1), 0.30]);
   if (f.niPos !== null && f.niPos !== undefined) c.push([f.niPos * 2 - 1, 0.25]);
-  if (f.margenTrend !== null && f.margenTrend !== undefined) c.push([clamp(f.margenTrend / 0.05, -1, 1), 0.20]);
-  if (f.fcfPos !== null && f.fcfPos !== undefined) c.push([f.fcfPos * 2 - 1, 0.15]);
-  if (f.ndEbitda !== null && f.ndEbitda !== undefined) c.push([clamp((2.5 - f.ndEbitda) / 2.5, -1, 1), 0.10]);
-  if (c.length < 3) return null;
+  if (!quema && f.margenTrend !== null && f.margenTrend !== undefined) c.push([clamp(f.margenTrend / 0.05, -1, 1), 0.20]);
+  if (!(fin && f.roe != null) && f.fcfPos !== null && f.fcfPos !== undefined) c.push([f.fcfPos * 2 - 1, 0.15]);
+  if (!quema && !fin && f.ndEbitda !== null && f.ndEbitda !== undefined) c.push([clamp((2.5 - f.ndEbitda) / 2.5, -1, 1), 0.10]);
+  if (fin && f.roe != null) c.push([clamp((f.roe - 0.10) / 0.10, -1, 1), 0.50]);
+  if (c.length < ((fin && f.roe != null) ? 2 : 3)) return null;
   const w = c.reduce((a, x) => a + x[1], 0);
-  return Math.round(100 * c.reduce((a, x) => a + x[0] * x[1], 0) / w);
+  const sc = Math.round(100 * c.reduce((a, x) => a + x[0] * x[1], 0) / w);
+  return quema ? Math.min(sc, 0) : sc;
 }
 function palabra(score, bueno, medio, malo) {
   if (score === null || score === undefined) return null;
